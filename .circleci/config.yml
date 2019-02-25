@@ -1,0 +1,66 @@
+version: 2.1
+
+defaults: &defaults
+  docker:
+    - image: circleci/node:latest
+  working_directory: ~/repo
+
+jobs:
+  setup:
+    <<: *defaults
+    steps:
+      - checkout
+      - restore_cache:
+          key: dependency-cache-{{ checksum "package.json" }}
+      - run:
+          name: Install NPM Packages
+          command: npm install
+      - save_cache:
+          key: dependency-cache-{{ checksum "package.json" }}
+          paths:
+            - ./node_modules
+  test:
+    <<: *defaults
+    steps:
+      - checkout
+      - restore_cache:
+          key: dependency-cache-{{ checksum "package.json" }}
+      - run:
+          name: Run Unit Tests
+          command: npm test
+      - run:
+          name: Report Coverage
+          command: cat coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js
+      - store_artifacts:
+          path: coverage
+      - persist_to_workspace:
+          root: ~/repo
+          paths: .
+  deploy:
+    <<: *defaults
+    steps:
+      - attach_workspace:
+          at: ~/repo
+      - run:
+          name: Authenticate with NPM Registry
+          command: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/repo/.npmrc
+      - run:
+          name: Publish NPM Package
+          command: npm publish
+
+workflows:
+  setup-test-deploy:
+    jobs:
+      - setup
+      - test:
+          requires:
+            - setup
+      - deploy:
+          requires:
+            - test
+          filters:
+            branches:
+              only:
+                - master
+            tags:
+              only: /^[0-9]+\.[0-9]+\.[0-9]+.*/
